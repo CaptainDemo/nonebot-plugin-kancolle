@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} · 改造链{% endblock %}
+
+{% block content %}
+<div class="card ship-remodel">
+  <header class="remodel-header">
+    <h2>{{ display_name }}</h2>
+    <div class="meta-dim">改造链（共 {{ chain_length }} 个形态）</div>
+  </header>
+
+  <ol class="chain-list">
+    {% for node in chain %}
+    <li class="chain-node{{ ' current' if node.is_current }}">
+      <div class="node-index">{{ node.index }}</div>
+      <div class="node-body">
+        <div class="node-name">
+          {{ node.name }}
+          <span class="meta-dim node-stype">{{ node.stype_abbr }}</span>
+          {% if node.is_current %}<span class="current-tag">当前位置</span>{% endif %}
+        </div>
+        <div class="node-id meta-dim">#{{ node.ship_id }}</div>
+      </div>
+    </li>
+    {% if not loop.last %}
+    <li class="chain-connector">
+      {% if chain[loop.index].level_required %}
+      <span class="connector-level">Lv {{ chain[loop.index].level_required }}</span>
+      {% endif %}
+      <span class="connector-arrow">↓</span>
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+
+  <footer class="remodel-footer meta-dim">
+    回复对应舰名查看卡片
+  </footer>
+</div>
+
+<style>
+  .remodel-header { margin-bottom: 18px; }
+  .remodel-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+
+  .chain-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .chain-node {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    background: var(--bar-bg);
+    border-radius: 8px;
+    border-left: 3px solid transparent;
+  }
+  .chain-node.current {
+    border-left-color: var(--accent);
+    background: rgba(91, 158, 255, 0.08);
+  }
+  body.theme-light .chain-node.current {
+    background: rgba(37, 99, 235, 0.06);
+  }
+
+  .node-index {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 0.9em;
+    flex-shrink: 0;
+  }
+  .node-body { flex: 1; }
+  .node-name {
+    font-size: 1.05em;
+    font-weight: 600;
+  }
+  .node-stype {
+    margin-left: 8px;
+    font-size: 0.8em;
+    font-weight: 400;
+  }
+  .node-id { font-size: 0.8em; margin-top: 2px; }
+  .current-tag {
+    margin-left: 10px;
+    padding: 2px 8px;
+    background: var(--success);
+    color: #0a0a0a;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 700;
+  }
+
+  .chain-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 0;
+    color: var(--fg-muted);
+    font-size: 0.85em;
+  }
+  .connector-level {
+    color: var(--bar-max);
+    font-weight: 600;
+    font-size: 0.85em;
+  }
+  .connector-arrow {
+    font-size: 1.2em;
+    line-height: 1;
+  }
+
+  .remodel-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 0.85em;
+    text-align: center;
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,88 @@
+[project]
+name = "nonebot-plugin-kancolle"
+version = "0.1.0"
+description = "舰队Collection信息查询插件 - 舰娘/装备/任务/海域"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Demo" }]
+keywords = ["nonebot", "plugin", "kancolle", "kancolle-collection", "舰これ", "舰娘"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Library",
+    "Topic :: Games/Entertainment",
+]
+
+dependencies = [
+    "nonebot2>=2.4.0",
+    "nonebot-adapter-onebot>=2.4.0",
+    "nonebot-plugin-localstore>=0.7.0",
+    "nonebot-plugin-apscheduler>=0.5.0",
+    "nonebot-plugin-alconna>=0.55.0",
+    "nonebot-plugin-htmlrender>=0.3.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.0",
+    "pypinyin>=0.50.0",
+    "rapidfuzz>=3.0.0",
+    "aiofiles>=23.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "respx>=0.21.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/CaptainDemo/nonebot-plugin-kancolle"
+Repository = "https://github.com/CaptainDemo/nonebot-plugin-kancolle"
+
+[project.entry-points."nonebot.plugins"]
+kancolle = "nonebot_plugin_kancolle"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nonebot_plugin_kancolle"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/nonebot_plugin_kancolle",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.nonebot]
+plugins = ["nonebot_plugin_kancolle"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

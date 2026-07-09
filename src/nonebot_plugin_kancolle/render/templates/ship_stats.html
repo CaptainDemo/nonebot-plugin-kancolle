@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} · 数值{% endblock %}
+
+{% block content %}
+<div class="card ship-stats">
+  <header class="stats-header">
+    <h2>{{ display_name }}</h2>
+    <div class="stats-subtitle meta-dim">
+      <span class="stype-badge">{{ stype_cn }}<em>{{ stype_abbr }}</em></span>
+      {% if ship_class_jp %}<span>{{ ship_class_jp }}</span>{% endif %}
+      <span>#{{ ship_id }}</span>
+    </div>
+  </header>
+
+  <section class="stats-section">
+    <h3 class="section-title">数值</h3>
+    <div class="stats-grid">
+      {% for stat in stats %}
+      <div class="stat-row{{ ' missing' if stat.missing }}">
+        <div class="stat-label">{{ stat.label }}</div>
+        <div class="stat-bars">
+          {% if not stat.missing %}
+          <div class="bar-track"><div class="bar-fill base" style="width: {{ (stat.base_ratio * 100)|round(1) }}%"></div></div>
+          <div class="bar-track"><div class="bar-fill max"  style="width: {{ (stat.max_ratio  * 100)|round(1) }}%"></div></div>
+          {% else %}
+          <div class="bar-track"></div>
+          <div class="bar-track"></div>
+          {% endif %}
+        </div>
+        <div class="stat-value">
+          {% if stat.missing -%}
+            -
+          {%- elif stat.base == stat.max -%}
+            {{ stat.base }}
+          {%- else -%}
+            {{ stat.base }}<span class="arrow">→</span><span class="max-only">{{ stat.max }}</span>
+          {%- endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="stats-extra">
+      {% if speed_text %}<span>航速 <b>{{ speed_text }}</b></span>{% endif %}
+      {% if range_text %}<span>射程 <b>{{ range_text }}</b></span>{% endif %}
+    </div>
+    <div class="stats-legend">
+      <span><span class="legend-swatch base"></span>初期</span>
+      <span><span class="legend-swatch max"></span>满级</span>
+    </div>
+  </section>
+
+  <section class="stats-section">
+    <h3 class="section-title">装备</h3>
+    <div class="equip-grid">
+      <div class="equip-item">
+        <div class="equip-label">槽数</div>
+        <div class="equip-value">{{ slot_count if slot_count is not none else '-' }}</div>
+      </div>
+      <div class="equip-item">
+        <div class="equip-label">搭载</div>
+        <div class="equip-value">
+          {% if slot_capacity %}[{{ slot_capacity|join(", ") }}]{% else %}-{% endif %}
+        </div>
+      </div>
+      <div class="equip-item">
+        <div class="equip-label">燃料消耗</div>
+        <div class="equip-value">{{ fuel if fuel is not none else '-' }}</div>
+      </div>
+      <div class="equip-item">
+        <div class="equip-label">弹药消耗</div>
+        <div class="equip-value">{{ ammo if ammo is not none else '-' }}</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats-section">
+    <h3 class="section-title">改造</h3>
+    <div class="remodel-info">
+      {% if remodel_to_id %}
+        <span>→ 改造后 <b>#{{ remodel_to_id }}</b>{% if remodel_level %}（Lv {{ remodel_level }}）{% endif %}</span>
+      {% else %}
+        <span class="meta-dim">无后续改造</span>
+      {% endif %}
+      {% if remodel_from_id %}
+        <span class="meta-dim">← 改造前 #{{ remodel_from_id }}</span>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if can_drop is not none %}
+  <footer class="stats-footer">
+    <span class="drop {{ 'ok' if can_drop else 'no' }}">
+      {{ '✓ 可获取' if can_drop else '✗ 当前不可获取' }}
+    </span>
+  </footer>
+  {% endif %}
+</div>
+
+<style>
+  .stats-header { margin-bottom: 16px; }
+  .stats-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .stats-subtitle {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+
+  .stats-section {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  .stats-section:first-of-type { border-top: none; padding-top: 0; }
+  .section-title {
+    font-size: 14px; font-weight: 600;
+    color: var(--fg-dim);
+    margin-bottom: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .stats-extra {
+    display: flex; gap: 16px;
+    margin-top: 8px;
+    color: var(--fg-dim);
+    font-size: 0.9em;
+  }
+  .stats-extra b { color: var(--fg); font-weight: 600; }
+
+  .stats-legend {
+    display: flex; gap: 14px;
+    margin-top: 6px;
+    color: var(--fg-muted);
+    font-size: 0.8em;
+  }
+  .legend-swatch {
+    display: inline-block;
+    width: 14px; height: 6px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .legend-swatch.base { background: var(--bar-base); }
+  .legend-swatch.max  { background: var(--bar-max); opacity: 0.55; }
+
+  .equip-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+  }
+  .equip-item {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .equip-label { color: var(--fg-dim); font-size: 0.9em; }
+  .equip-value { font-variant-numeric: tabular-nums; }
+
+  .remodel-info {
+    display: flex; flex-direction: column; gap: 4px;
+    color: var(--fg-dim);
+    font-size: 0.95em;
+  }
+  .remodel-info b { color: var(--fg); }
+
+  .stats-footer {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 0.9em;
+  }
+  .drop.ok { color: var(--success); font-weight: 600; }
+  .drop.no { color: var(--danger); font-weight: 600; }
+</style>
+{% endblock %}
