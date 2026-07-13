@@ -18,6 +18,7 @@ from ..bootstrap import get_enhancer, get_renderer, get_resolver, get_store
 from ..data.models import ShipEnhancement
 from ..render.renderer import RenderUnavailable
 from ..utils.logger import log
+from ..utils.limiter import maybe_apply_prefix_variance
 from ._format import format_basic, format_detail, format_multiple, format_remodel
 
 ship_cmd = on_alconna(
@@ -42,7 +43,9 @@ async def handle_ship(
 ) -> None:
     """处理舰娘查询。"""
     if not name.available or not name.result:
-        await ship_cmd.finish("请在指令后写明舰娘名，例如「查舰娘 大和」")
+        await ship_cmd.finish(
+            maybe_apply_prefix_variance("请在指令后写明舰娘名，例如「查舰娘 大和」")
+        )
         return
 
     query = str(name.result).strip()
@@ -52,11 +55,15 @@ async def handle_ship(
     result = resolver.resolve(query)
 
     if result.is_none:
-        await ship_cmd.finish(result.message or f"未找到与「{query}」匹配的舰娘")
+        await ship_cmd.finish(
+            maybe_apply_prefix_variance(
+                result.message or f"未找到与「{query}」匹配的舰娘"
+            )
+        )
         return
 
     if result.is_multiple:
-        await ship_cmd.finish(format_multiple(result))
+        await ship_cmd.finish(maybe_apply_prefix_variance(format_multiple(result)))
         return
 
     # single
@@ -89,7 +96,7 @@ async def handle_ship(
         text = format_detail(ship, enhancement)
     else:
         text = format_basic(ship, enhancement)
-    await ship_cmd.finish(text)
+    await ship_cmd.finish(maybe_apply_prefix_variance(text))
 
 
 async def _try_send_images(

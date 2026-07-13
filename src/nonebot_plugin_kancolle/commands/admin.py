@@ -19,6 +19,7 @@ from nonebot_plugin_alconna import on_alconna
 from ..bootstrap import get_adapters, get_http_client, get_renderer, get_store
 from ..update.pipeline import run_update_pipeline
 from ..utils.logger import log
+from ..utils.limiter import maybe_apply_prefix_variance
 from ._format import format_data_status, format_update_result
 
 update_cmd = on_alconna(
@@ -42,7 +43,9 @@ status_cmd = on_alconna(
 @update_cmd.handle()
 async def handle_update() -> None:
     """触发数据更新。先发"开始拉取"提示，避免用户以为没响应。"""
-    await update_cmd.send("开始拉取最新数据…（预计 10-30 秒）")
+    await update_cmd.send(
+        maybe_apply_prefix_variance("开始拉取最新数据…（预计 10-30 秒）")
+    )
 
     store = get_store()
     http = get_http_client()
@@ -60,14 +63,20 @@ async def handle_update() -> None:
             timeout=300.0,  # 5 分钟兜底，避免网络卡死 SUPERUSER 的会话
         )
     except TimeoutError:
-        await update_cmd.finish("✗ 更新超时（>5 分钟），请稍后重试")
+        await update_cmd.finish(
+            maybe_apply_prefix_variance("✗ 更新超时（>5 分钟），请稍后重试")
+        )
         return
     except Exception as e:
         log.exception("update command failed")
-        await update_cmd.finish(f"✗ 更新失败：{e}")
+        await update_cmd.finish(
+            maybe_apply_prefix_variance(f"✗ 更新失败：{e}")
+        )
         return
 
-    await update_cmd.finish(format_update_result(result))
+    await update_cmd.finish(
+        maybe_apply_prefix_variance(format_update_result(result))
+    )
 
 
 @status_cmd.handle()
@@ -90,4 +99,4 @@ async def handle_status() -> None:
 
     src_objs = [_S(s) for s in sources]
     text = format_data_status(data_version, ship_count, src_objs)
-    await status_cmd.finish(text)
+    await status_cmd.finish(maybe_apply_prefix_variance(text))

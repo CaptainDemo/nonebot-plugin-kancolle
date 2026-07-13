@@ -11,6 +11,7 @@ from __future__ import annotations
 from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Match, on_alconna
 
+from ..utils.limiter import maybe_apply_prefix_variance
 from ._format import format_help_overview, format_help_topic
 
 help_cmd = on_alconna(
@@ -26,17 +27,19 @@ help_cmd = on_alconna(
 async def handle_help(topic: Match[str]) -> None:
     """处理帮助查询。"""
     if not topic.available or not topic.result:
-        await help_cmd.finish(format_help_overview())
+        await help_cmd.finish(maybe_apply_prefix_variance(format_help_overview()))
         return
 
     topic_str = str(topic.result).strip()
     content = format_help_topic(topic_str)
     if content is None:
         await help_cmd.finish(
-            f"未找到指令「{topic_str}」的帮助\n"
-            f"可用指令: 查舰娘 / 舰C帮助 / 更新舰娘数据 / 数据状态\n"
-            f"输入「舰C帮助」查看总览"
+            maybe_apply_prefix_variance(
+                f"未找到指令「{topic_str}」的帮助\n"
+                f"可用指令: 查舰娘 / 舰C帮助 / 更新舰娘数据 / 数据状态\n"
+                f"输入「舰C帮助」查看总览"
+            )
         )
         return
 
-    await help_cmd.finish(content)
+    await help_cmd.finish(maybe_apply_prefix_variance(content))

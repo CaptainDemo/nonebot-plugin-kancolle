@@ -69,6 +69,15 @@ class KancolleConfig(BaseModel):
         le=100,
     )
 
+    # === 消息限流（可选集成 nonebot-plugin-message-limiter）===
+    kancolle_use_prefix_variance: bool = Field(
+        default=False,
+        description=(
+            "是否对发出去的文本应用随机前缀扰动。"
+            "需额外安装 nonebot-plugin-message-limiter；插件缺失时自动降级为原文本。"
+        ),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_config() -> KancolleConfig:
