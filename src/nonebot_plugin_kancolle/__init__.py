@@ -26,6 +26,10 @@ __plugin_meta__ = PluginMetadata(
         "查舰娘 <名> 详细     ship <name> -d        查询舰娘详情（多张图片）\n"
         "查舰娘 <名> 改造     ship <name> remodel   查询改造链\n"
         "\n"
+        "=== 装备查询 ===\n"
+        "查装备 <名>          equip <name>          查询装备基础卡（图片）\n"
+        "查装备 <名> 详细     equip <name> -d       查询装备详情（基础+完整数值）\n"
+        "\n"
         "=== 帮助 ===\n"
         "舰C帮助              kchelp                查看所有指令\n"
         "舰C帮助 <指令>       kchelp <cmd>          查看某条指令的详细帮助\n"
@@ -51,12 +55,15 @@ def _setup_update_scheduler() -> None:
     避免影响插件 import。运行时（nonebot 已 init）则正常注册。
     """
     try:
+        from .bootstrap import (
+            get_adapters,
+            get_http_client,
+            get_renderer,
+            get_store,
+        )
         from .config import get_config
         from .update.pipeline import run_update_pipeline
         from .update.scheduler import setup_periodic_update, setup_startup_update
-        from .bootstrap import (
-            get_adapters, get_http_client, get_renderer, get_store,
-        )
 
         cfg = get_config()
 
@@ -67,8 +74,13 @@ def _setup_update_scheduler() -> None:
                 renderer = get_renderer()
             except Exception:
                 renderer = None
+            try:
+                from .bootstrap import get_equipment_renderer
+                equip_renderer = get_equipment_renderer()
+            except Exception:
+                equip_renderer = None
             adapters = get_adapters()
-            await run_update_pipeline(store, adapters, http, renderer)
+            await run_update_pipeline(store, adapters, http, renderer, equip_renderer)
 
         setup_periodic_update(cfg.kancolle_data_update_interval_hours, _runner)
         if cfg.kancolle_data_update_on_startup:

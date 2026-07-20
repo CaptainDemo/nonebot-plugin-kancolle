@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import gzip
 import json
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import httpx
 
@@ -90,12 +91,72 @@ class KcanotifyAdapter(SourceAdapter):
                 # 单条异常不影响整体；记录跳过的 id，便于上游诊断
                 log.warning(f"kcanotify skip ship {raw_ship.get('api_id')}: {e}")
 
+    def normalize_slotitems(self, raw: RawData) -> Iterator[dict[str, Any]]:
+        """把 start2 api_mst_slotitem 规整为 Equipment 模型 dict 流。
+
+        start2 字段对照（详见 _normalize_one_slotitem 的注释）：
+        - api_id -> id
+        - api_name -> name.jp
+        - api_type[2] -> type_icon_id；api_type[3] -> type_id
+        - api_houg/raig/tyku/souk/tais/saku/houk/houm/luck/baku -> stats
+        - api_leng -> range_；api_rare -> rarity
+        - api_distance -> distance；api_cost -> cost
+        - api_broken[4] -> broken
+        """
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise ValueError(f"kcanotify payload must be dict, got {type(payload).__name__}")
+
+        api_data = payload.get("api_data", payload)
+        items = api_data.get("api_mst_slotitem", [])
+
+        for raw_item in items:
+            try:
+                yield _normalize_one_slotitem(raw_item, raw.version, raw.fetched_at)
+            except (KeyError, ValueError, TypeError) as e:
+                log.warning(f"kcanotify skip slotitem {raw_item.get('api_id')}: {e}")
+
+    def normalize_equiptypes(self, raw: RawData) -> Iterator[dict[str, Any]]:
+        """把 start2 api_mst_slotitem_equiptype 规整为 dict 流。
+
+        输出 dict 含 type_id / name_jp（name_cn/name_en 留给 kc3 覆盖）。
+        """
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise ValueError(f"kcanotify payload must be dict, got {type(payload).__name__}")
+
+        api_data = payload.get("api_data", payload)
+        types = api_data.get("api_mst_slotitem_equiptype", [])
+
+        for entry in types:
+            try:
+                type_id = entry["api_id"]
+            except (KeyError, TypeError) as e:
+                log.warning(f"kcanotify skip equiptype entry {entry!r}: {e}")
+                continue
+            yield {
+                "type_id": int(type_id),
+                "name_jp": entry.get("api_name"),
+                "name_cn": None,
+                "name_en": None,
+                "provenance": {
+                    "name_jp": {
+                        "source": "kcanotify",
+                        "version": raw.version,
+                        "fetched_at": raw.fetched_at,
+                    }
+                } if entry.get("api_name") else {},
+            }
+
     def priority(self, field: str) -> int:
-        """kcanotify 是 stats / 改造链 / 标识字段的主源。"""
+        """kcanotify 是 stats / 改造链 / 标识字段的主源；装备字段同样主源。"""
         if field in {
             "id", "name_jp", "name_romaji", "ship_type_id", "ship_class_id",
             "ship_class_jp", "speed", "range_", "stats_base", "stats_max",
             "remodel_to", "remodel_level", "remodel_fuel_cost", "remodel_ammo_cost",
+            # 装备字段（P7）
+            "type_icon_id", "type_id", "rarity", "stats",
+            "distance", "cost", "broken",
         }:
             return 10
         return 1
@@ -184,6 +245,84 @@ def _normalize_one_ship(
         "remodel_level": _safe_int(raw.get("api_afterlv")) or None,
         "remodel_fuel_cost": _safe_int(raw.get("api_afterfuel")) or None,
         "remodel_ammo_cost": _safe_int(raw.get("api_afterbull")) or None,
+        "provenance": prov,
+    }
+
+
+def _normalize_one_slotitem(
+    raw: dict[str, Any],
+    version: str,
+    fetched_at: int,
+) -> dict[str, Any]:
+    """规整单条 api_mst_slotitem 为 Equipment 模型 dict。
+
+    字段映射：
+    - api_id -> id
+    - api_name -> name.jp
+    - api_type[2] -> type_icon_id（图标分类）
+    - api_type[3] -> type_id（装备类型字典 id）
+    - api_houg -> stats.firepower；api_raig -> stats.torpedo
+    - api_tyku -> stats.aa；api_souk -> stats.armor
+    - api_tais -> stats.asw；api_saku -> stats.los
+    - api_houk -> stats.evasion；api_houm -> stats.accuracy
+    - api_luck -> stats.luck；api_baku -> stats.bombing
+    - api_leng -> range_；api_rare -> rarity
+    - api_distance -> distance（飞机半径）
+    - api_cost -> cost（LBAS 配置成本）
+    - api_broken[4] -> broken（废弃返还 [燃料,弹药,钢,铝]）
+
+    注：装备数值都是单值标量（与 ship 的 [base, max] 数组不同）。
+    """
+    equip_id = raw["api_id"]
+
+    # api_type 是 5 元素数组，索引 [2] 是图标 id，[3] 是装备类型 id
+    api_type = raw.get("api_type", [])
+    type_icon_id: int | None = None
+    type_id: int | None = None
+    if isinstance(api_type, list):
+        if len(api_type) > 2:
+            type_icon_id = _safe_int(api_type[2])
+        if len(api_type) > 3:
+            type_id = _safe_int(api_type[3])
+
+    # 废弃返还：4 元素数组 [燃料,弹药,钢,铝]
+    api_broken = raw.get("api_broken")
+    broken: list[int] | None = None
+    if isinstance(api_broken, list) and api_broken:
+        broken = [_safe_int(x) or 0 for x in api_broken]
+
+    # provenance：本适配器填充的字段
+    equip_fields = (
+        "name_jp", "type_icon_id", "type_id", "rarity", "range_",
+        "stats", "distance", "cost", "broken",
+    )
+    prov = {
+        f: {"source": "kcanotify", "version": version, "fetched_at": fetched_at}
+        for f in equip_fields
+    }
+
+    return {
+        "id": equip_id,
+        "name": {"jp": raw.get("api_name")},
+        "type_icon_id": type_icon_id,
+        "type_id": type_id,
+        "rarity": _safe_int(raw.get("api_rare")),
+        "range_": _safe_int(raw.get("api_leng")),
+        "stats": {
+            "firepower": _safe_int(raw.get("api_houg")),
+            "torpedo": _safe_int(raw.get("api_raig")),
+            "aa": _safe_int(raw.get("api_tyku")),
+            "armor": _safe_int(raw.get("api_souk")),
+            "asw": _safe_int(raw.get("api_tais")),
+            "los": _safe_int(raw.get("api_saku")),
+            "evasion": _safe_int(raw.get("api_houk")),
+            "accuracy": _safe_int(raw.get("api_houm")),
+            "luck": _safe_int(raw.get("api_luck")),
+            "bombing": _safe_int(raw.get("api_baku")),
+        },
+        "distance": _safe_int(raw.get("api_distance")),
+        "cost": _safe_int(raw.get("api_cost")),
+        "broken": broken,
         "provenance": prov,
     }
 

@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 -- 首次建库时写入的元信息（INSERT OR IGNORE 保证幂等）
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', strftime('%s', 'now'));
 INSERT OR IGNORE INTO meta (key, value) VALUES ('data_version', '');
+-- improvement_version: kcwiki-improvement-data 仓库 gh-pages 分支的 commit_sha，
+-- 由 ImprovementEnhancer 首次拉取后写入。作为改修卡渲染缓存键的一部分。
+INSERT OR IGNORE INTO meta (key, value) VALUES ('improvement_version', '');
 -- data_version 由 P2 fusion 完成后写入（取所有源 commit_sha 的拼接指纹），
 -- 用于触发渲染缓存失效。
 
@@ -133,3 +136,78 @@ CREATE TABLE IF NOT EXISTS ship_enhancements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_enhancements_expires ON ship_enhancements(expires_at);
+
+-- ----------------------------------------------------------------------------
+-- equipment_types: 装备类型字典（schema v3 引入，P7 装备查询）
+-- ----------------------------------------------------------------------------
+-- 来自 start2 api_mst_slotitem_equiptype（api_id/api_name）+ kc3-translations
+-- equiptype.json 索引 [3]（中英文名）。共 62 条。
+-- type_id 对应 equipment.type_id（即 api_type[3]，最精细分类）。
+CREATE TABLE IF NOT EXISTS equipment_types (
+    type_id    INTEGER PRIMARY KEY,
+    name_jp    TEXT,
+    name_cn    TEXT,
+    name_en    TEXT,
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+-- ----------------------------------------------------------------------------
+-- equipments: 装备主表（schema v3 引入）
+-- ----------------------------------------------------------------------------
+-- 来自 start2 api_mst_slotitem（729 条）+ kc3-translations items.json（中英文名）。
+-- type_id 关联 equipment_types；type_icon_id 是 api_type[2]，用于图标分类。
+-- stats 是单值（与 ships 的 base/max 双值不同），用单个 JSON 字段。
+-- distance/cost 仅飞机有；broken 是 4 元素数组 [燃料,弹药,钢,铝]。
+CREATE TABLE IF NOT EXISTS equipments (
+    id              INTEGER PRIMARY KEY,
+    name_jp         TEXT,
+    name_cn         TEXT,
+    name_en         TEXT,
+    aliases_json    TEXT DEFAULT '[]',
+    type_icon_id    INTEGER,              -- api_type[2]，图标分类
+    type_id         INTEGER,              -- api_type[3]，装备类型 id
+    rarity          INTEGER,              -- 0-7
+    range_          INTEGER,              -- 0=无/1=短/2=中/3=长/4=超长/5=超超长
+    stats_json      TEXT DEFAULT '{}',    -- EquipmentStats 序列化（单值）
+    distance        INTEGER,              -- 飞机半径（仅飞机类有）
+    cost            INTEGER,              -- LBAS 配置成本（仅飞机类有）
+    broken_json     TEXT,                 -- [燃料,弹药,钢,铝]，可为 NULL
+    provenance_json TEXT DEFAULT '{}',
+    updated_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_equipments_type     ON equipments(type_id);
+CREATE INDEX IF NOT EXISTS idx_equipments_name_cn  ON equipments(name_cn);
+CREATE INDEX IF NOT EXISTS idx_equipments_name_jp  ON equipments(name_jp);
+CREATE INDEX IF NOT EXISTS idx_equipments_rarity   ON equipments(rarity);
+
+-- ----------------------------------------------------------------------------
+-- equipments_fts: 装备全文检索（FTS5，contentless）
+-- ----------------------------------------------------------------------------
+-- 与 ships_fts 同模式：contentless + 应用层手动维护 + 拼音列。
+CREATE VIRTUAL TABLE IF NOT EXISTS equipments_fts USING fts5(
+    equipment_id UNINDEXED,
+    name_jp,
+    name_cn,
+    name_en,
+    pinyin,
+    aliases,
+    tokenize='unicode61'
+);
+
+-- ----------------------------------------------------------------------------
+-- equipment_improvements: 装备改修数据缓存（schema v4 引入，P7.1）
+-- ----------------------------------------------------------------------------
+-- 来自 kcwikizh/kcwiki-improvement-data 仓库的 improve_data.json（257 KB，344 条）。
+-- ImprovementEnhancer 一次拉取全量后，按 equip_id 切片写入此表。
+-- status: ok=有数据 / not_found=improve_data.json 中无此 equip_id / failed=网络失败
+--（failed 不入此表，由 enhancer 内存重试；not_found 入表避免反复请求）
+CREATE TABLE IF NOT EXISTS equipment_improvements (
+    equip_id    INTEGER PRIMARY KEY,
+    data_json   TEXT,                     -- ImprovementData 序列化（status=ok 时非空）
+    fetched_at  INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'ok',
+    expires_at  INTEGER NOT NULL          -- fetched_at + TTL，过期重新拉取
+);
+
+CREATE INDEX IF NOT EXISTS idx_improvements_expires ON equipment_improvements(expires_at);

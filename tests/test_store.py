@@ -220,26 +220,37 @@ def test_find_by_exact_name_unknown_returns_none(store: Store) -> None:
 
 
 # ----------------------------------------------------------------------
-# Schema 版本与 v1→v2 迁移
+# Schema 版本与迁移
 # ----------------------------------------------------------------------
 
-def test_schema_version_is_v2() -> None:
-    """代码常量与 schema.sql 默认值都是 v2。"""
-    assert SCHEMA_VERSION == 2
+def test_schema_version_is_v4() -> None:
+    """代码常量与 schema.sql 默认值都是 v4（P7.1 起升级）。"""
+    assert SCHEMA_VERSION == 4
 
 
 def test_open_creates_ship_enhancements_table(store: Store) -> None:
-    """v2 库应直接含 ship_enhancements 表。"""
+    """v3 库应直接含 ship_enhancements 表。"""
     cur = store.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='ship_enhancements'"
     )
     assert cur.fetchone() is not None
 
 
-def test_v1_to_v2_migration_applied(tmp_path: Path) -> None:
-    """模拟 v1 旧库 → open → 自动迁移到 v2，ship_enhancements 表出现。"""
+def test_open_creates_equipment_tables(store: Store) -> None:
+    """v4 库应直接含装备相关四张表（含 improvement 缓存）。"""
+    for table in (
+        "equipments", "equipments_fts", "equipment_types", "equipment_improvements",
+    ):
+        cur = store.conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+        )
+        assert cur.fetchone() is not None, f"缺少表 {table}"
+
+
+def test_v1_to_v4_migration_applied(tmp_path: Path) -> None:
+    """模拟 v1 旧库 → open → 自动迁移到 v4（v1→v2→v3→v4 顺序应用）。"""
     db_path = tmp_path / "legacy.db"
-    # 手工建一个 v1 schema（不含 ship_enhancements）
+    # 手工建一个 v1 schema（不含 ship_enhancements / equipment_*）
     import sqlite3
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -249,15 +260,54 @@ def test_v1_to_v2_migration_applied(tmp_path: Path) -> None:
     """)
     conn.close()
 
-    # 通过 Store 打开，应触发 v1→v2 迁移
+    # 通过 Store 打开，应触发 v1→v2→v3→v4 迁移
     store = Store(db_path)
     store.open()
     try:
-        assert store.get_meta("schema_version") == "2"
+        assert store.get_meta("schema_version") == "4"
+        for table in (
+            "ship_enhancements", "equipments", "equipments_fts",
+            "equipment_types", "equipment_improvements",
+        ):
+            cur = store.conn.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+            )
+            assert cur.fetchone() is not None, f"迁移后缺少表 {table}"
+    finally:
+        store.close()
+
+
+def test_v3_to_v4_migration_applied(tmp_path: Path) -> None:
+    """模拟 v3 库 → open → 自动迁移到 v4，改修表出现。"""
+    db_path = tmp_path / "v3.db"
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '3');
+        CREATE TABLE ships (id INTEGER PRIMARY KEY);
+        CREATE TABLE ship_enhancements (
+            ship_id INTEGER PRIMARY KEY,
+            data_json TEXT,
+            fetched_at INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ok',
+            expires_at INTEGER NOT NULL
+        );
+        CREATE TABLE equipments (id INTEGER PRIMARY KEY);
+        CREATE TABLE equipment_types (type_id INTEGER PRIMARY KEY);
+    """)
+    conn.close()
+
+    store = Store(db_path)
+    store.open()
+    try:
+        assert store.get_meta("schema_version") == "4"
         cur = store.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ship_enhancements'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='equipment_improvements'"
         )
         assert cur.fetchone() is not None
+        # improvement_version meta key 也应被加入
+        assert store.get_meta("improvement_version") == ""
     finally:
         store.close()
 

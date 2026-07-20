@@ -21,7 +21,7 @@ def to_pinyin(text: str) -> str:
         return ""
     # 局部 import：pypinyin 是 P3 才开始用的依赖，P2 测试环境未装时不影响其他模块
     try:
-        from pypinyin import lazy_pinyin, Style
+        from pypinyin import Style, lazy_pinyin
     except ImportError:
         # 无 pypinyin 时降级：返回原文（拼音匹配失效，但不影响其他功能）
         return text

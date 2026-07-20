@@ -28,7 +28,9 @@ class _PrefixVarianceLike(Protocol):
 _variance: _PrefixVarianceLike | None
 try:
     # 模块导入失败 = 用户未安装 message-limiter；不视为错误
-    from nonebot_plugin_message_limiter import prefix_variance as _pv  # type: ignore[import-not-found]
+    from nonebot_plugin_message_limiter import (
+        prefix_variance as _pv,  # type: ignore[import-not-found]
+    )
 
     _variance = _pv  # type: ignore[assignment]
 except ImportError:

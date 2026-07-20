@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} · 改修{% endblock %}
+
+{% block content %}
+<div class="card equipment-improvement">
+  <header class="imp-header">
+    <h2>{{ display_name }} · 改修</h2>
+    <div class="imp-subtitle meta-dim">
+      <span class="imp-tag">改修数据</span>
+      <span>共 {{ sections|length }} 条配方</span>
+    </div>
+  </header>
+
+  {% for section in sections %}
+  <section class="imp-section">
+    {% if section.has_multiple %}
+    <div class="section-marker">配方 {{ section.index }}</div>
+    {% endif %}
+
+    {# 基础消耗 pill #}
+    {% if section.base_pills %}
+    <div class="base-pills">
+      {% for p in section.base_pills %}
+      <span class="base-pill">{{ p.label }} {{ p.value }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# 改修消耗表（按 ★阶段） #}
+    <div class="consume-table">
+      <table>
+        <thead>
+          <tr>
+            <th class="row-label">阶段</th>
+            {% for label in section.stage_labels %}
+            <th>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="row-label">开发资材</td>
+            {% for v in section.dev_row %}
+            <td>{{ v }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="row-label">改修资材</td>
+            {% for v in section.imp_row %}
+            <td>{{ v }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="row-label">消耗装备</td>
+            {% for v in section.item_row %}
+            <td>{{ v }}</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {# 升级链 #}
+    {% if section.upgrade_text %}
+    <div class="upgrade-line">⮕ {{ section.upgrade_text }}</div>
+    {% endif %}
+
+    {# 秘书舰 + 星期矩阵 #}
+    {% if section.recipe_groups %}
+    <div class="recipe-grid">
+      <table class="recipe-table">
+        <thead>
+          <tr>
+            <th class="row-label">秘书舰</th>
+            {% for d in day_labels %}
+            <th class="day-cell">{{ d }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for rg in section.recipe_groups %}
+          <tr>
+            <td class="row-label secretary">{{ rg.secretaries }}</td>
+            {% for d in rg.day %}
+            <td class="day-cell {{ 'ok' if d else 'no' }}">{{ '✓' if d else '·' }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <footer class="imp-footer">
+    <span class="hint">{{ bonus_placeholder }}</span>
+    <span class="meta-dim">数据源：kcwiki-improvement-data</span>
+  </footer>
+</div>
+
+<style>
+  .imp-header { margin-bottom: 14px; }
+  .imp-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .imp-subtitle {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .imp-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: 600;
+  }
+
+  .imp-section {
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+  }
+  .imp-section:first-of-type { border-top: none; padding-top: 0; }
+  .section-marker {
+    font-size: 0.85em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  /* 基础消耗 pill */
+  .base-pills {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .base-pill {
+    padding: 3px 10px;
+    background: var(--bar-bg);
+    border-radius: 999px;
+    font-size: 0.85em;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 改修消耗表 */
+  .consume-table table,
+  .recipe-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+  }
+  .consume-table th,
+  .consume-table td {
+    padding: 6px 8px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .consume-table th {
+    color: var(--fg-dim);
+    font-weight: 600;
+    background: var(--row-stripe);
+  }
+  .consume-table .row-label {
+    text-align: left;
+    color: var(--fg-dim);
+    width: 90px;
+  }
+  .consume-table td {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 升级链 */
+  .upgrade-line {
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: var(--row-stripe);
+    border-radius: 4px;
+    font-size: 0.88em;
+    color: var(--fg-dim);
+  }
+
+  /* 秘书舰 + 星期矩阵 */
+  .recipe-grid {
+    margin-top: 12px;
+  }
+  .recipe-table th,
+  .recipe-table td {
+    padding: 5px 4px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .recipe-table th {
+    color: var(--fg-dim);
+    font-weight: 600;
+    font-size: 0.85em;
+  }
+  .recipe-table .row-label {
+    text-align: left;
+    color: var(--fg-dim);
+    padding-right: 8px;
+    max-width: 280px;
+  }
+  .recipe-table .secretary {
+    font-size: 0.88em;
+    line-height: 1.3;
+  }
+  .day-cell {
+    width: 28px;
+    font-variant-numeric: tabular-nums;
+  }
+  .day-cell.ok {
+    color: var(--success);
+    font-weight: 600;
+  }
+  .day-cell.no {
+    color: var(--fg-muted);
+    opacity: 0.6;
+  }
+
+  .imp-footer {
+    display: flex; justify-content: space-between;
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 0.85em;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .imp-footer .hint { color: var(--fg-muted); }
+</style>
+{% endblock %}

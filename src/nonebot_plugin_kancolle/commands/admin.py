@@ -11,15 +11,22 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from arclet.alconna import Alconna
 from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import on_alconna
 
-from ..bootstrap import get_adapters, get_http_client, get_renderer, get_store
+from ..bootstrap import (
+    get_adapters,
+    get_equipment_renderer,
+    get_http_client,
+    get_renderer,
+    get_store,
+)
 from ..update.pipeline import run_update_pipeline
-from ..utils.logger import log
 from ..utils.limiter import maybe_apply_prefix_variance
+from ..utils.logger import log
 from ._format import format_data_status, format_update_result
 
 update_cmd = on_alconna(
@@ -53,13 +60,19 @@ async def handle_update() -> None:
         renderer = get_renderer()
     except Exception as e:
         # renderer 不可用（playwright 缺失等）也允许更新；只是不清缓存
-        log.warning(f"renderer unavailable, cache invalidation skipped: {e}")
+        log.warning(f"ship renderer unavailable, cache invalidation skipped: {e}")
         renderer = None
+
+    try:
+        equip_renderer = get_equipment_renderer()
+    except Exception as e:
+        log.warning(f"equipment renderer unavailable, cache invalidation skipped: {e}")
+        equip_renderer = None
 
     adapters = get_adapters()
     try:
         result = await asyncio.wait_for(
-            run_update_pipeline(store, adapters, http, renderer),
+            run_update_pipeline(store, adapters, http, renderer, equip_renderer),
             timeout=300.0,  # 5 分钟兜底，避免网络卡死 SUPERUSER 的会话
         )
     except TimeoutError:
@@ -89,7 +102,7 @@ async def handle_status() -> None:
 
     # list_sources 返回 dict；转换成有属性的简单对象供 format_data_status 用
     class _S:
-        def __init__(self, d: dict) -> None:
+        def __init__(self, d: dict[str, Any]) -> None:
             self.name = str(d.get("name", "?"))
             self.version = str(d.get("version", "") or "")
             self.status = str(d.get("status", "?"))
@@ -97,6 +110,7 @@ async def handle_status() -> None:
             self.item_count = int(d.get("item_count", 0) or 0)
             self.error_msg = str(d.get("error_msg", "") or "")
 
-    src_objs = [_S(s) for s in sources]
-    text = format_data_status(data_version, ship_count, src_objs)
+    src_objs: list[object] = [_S(s) for s in sources]
+    equip_count = store.count_equipments()
+    text = format_data_status(data_version, ship_count, src_objs, equip_count)
     await status_cmd.finish(maybe_apply_prefix_variance(text))

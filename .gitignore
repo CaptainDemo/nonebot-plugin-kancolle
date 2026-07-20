@@ -135,6 +135,8 @@ venv.bak/
 # 本项目运行/测试时的临时目录
 .tmp/
 .basedump/
+.research_tmp/
+.test_tmp/
 
 # pytest
 .pytest_tmp/

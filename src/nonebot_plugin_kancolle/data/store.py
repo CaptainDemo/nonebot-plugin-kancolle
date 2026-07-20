@@ -16,9 +16,18 @@ from typing import Any
 
 from ..utils.logger import log
 from ..utils.pinyin import to_pinyin
-from .models import Ship, ShipEnhancement, ShipName, ShipStats
+from .models import (
+    Equipment,
+    EquipmentName,
+    EquipmentStats,
+    ImprovementData,
+    Ship,
+    ShipEnhancement,
+    ShipName,
+    ShipStats,
+)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 
 def get_schema_sql() -> str:
@@ -129,6 +138,71 @@ class Store:
             """
         )
         log.info("applied v1->v2: ship_enhancements table created")
+
+    def _migrate_v2_to_v3(self) -> None:
+        """v2 → v3: 添加装备相关三张表（equipment_types / equipments / equipments_fts）。"""
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS equipment_types (
+                type_id    INTEGER PRIMARY KEY,
+                name_jp    TEXT,
+                name_cn    TEXT,
+                name_en    TEXT,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS equipments (
+                id              INTEGER PRIMARY KEY,
+                name_jp         TEXT,
+                name_cn         TEXT,
+                name_en         TEXT,
+                aliases_json    TEXT DEFAULT '[]',
+                type_icon_id    INTEGER,
+                type_id         INTEGER,
+                rarity          INTEGER,
+                range_          INTEGER,
+                stats_json      TEXT DEFAULT '{}',
+                distance        INTEGER,
+                cost            INTEGER,
+                broken_json     TEXT,
+                provenance_json TEXT DEFAULT '{}',
+                updated_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_equipments_type     ON equipments(type_id);
+            CREATE INDEX IF NOT EXISTS idx_equipments_name_cn  ON equipments(name_cn);
+            CREATE INDEX IF NOT EXISTS idx_equipments_name_jp  ON equipments(name_jp);
+            CREATE INDEX IF NOT EXISTS idx_equipments_rarity   ON equipments(rarity);
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS equipments_fts USING fts5(
+                equipment_id UNINDEXED,
+                name_jp,
+                name_cn,
+                name_en,
+                pinyin,
+                aliases,
+                tokenize='unicode61'
+            );
+            """
+        )
+        log.info("applied v2->v3: equipment tables created")
+
+    def _migrate_v3_to_v4(self) -> None:
+        """v3 → v4: 添加 equipment_improvements 表（kcwiki 改修数据懒加载缓存）。"""
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS equipment_improvements (
+                equip_id    INTEGER PRIMARY KEY,
+                data_json   TEXT,
+                fetched_at  INTEGER NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'ok',
+                expires_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_improvements_expires
+                ON equipment_improvements(expires_at);
+            INSERT OR IGNORE INTO meta (key, value) VALUES ('improvement_version', '');
+            """
+        )
+        log.info("applied v3->v4: equipment_improvements table created")
 
     # ------------------------------------------------------------------
     # Ship 读写
@@ -243,7 +317,8 @@ class Store:
         """全文检索。
 
         返回 [(ship_id, rank_score)]，按 FTS5 bm25 相关度排序。
-        query 直接交由 FTS5 处理（支持 OR/AND/前缀 * 等）。
+        查询用双引号包裹为 PHRASE 字面匹配，避免特殊字符（. * ( ) 等）
+        触发 FTS5 语法错误；解析失败时返回空列表由上层 fuzzy 兜底。
         """
         if not query.strip():
             return []
@@ -253,7 +328,13 @@ class Store:
             "WHERE ships_fts MATCH ? "
             "ORDER BY score LIMIT ?"
         )
-        cur = self.conn.execute(sql, (query, limit))
+        # PHRASE 包裹：将整个查询作为字面短语匹配
+        safe = _fts_phrase(query)
+        try:
+            cur = self.conn.execute(sql, (safe, limit))
+        except sqlite3.OperationalError as e:
+            log.warning(f"ship fts query failed (query={query!r}): {e}")
+            return []
         # bm25 返回负数（越小越相关）；转换为正分数便于上层使用
         return [(int(r["ship_id"]), -int(r["score"] * 1000)) for r in cur.fetchall()]
 
@@ -369,6 +450,254 @@ class Store:
         return cur.rowcount or 0
 
     # ------------------------------------------------------------------
+    # ImprovementData（P7.1 kcwiki 改修数据缓存）
+    # ------------------------------------------------------------------
+    def get_improvement(self, equip_id: int) -> tuple[ImprovementData | None, str, int] | None:
+        """取改修缓存。返回 (data, status, expires_at)；未缓存返回 None。
+
+        status: 'ok' / 'not_found' / 'failed'。data 仅在 status='ok' 时有值。
+        调用方需自行判断 expires_at 是否过期。
+        """
+        cur = self.conn.execute(
+            "SELECT data_json, status, expires_at FROM equipment_improvements WHERE equip_id = ?",
+            (equip_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        data: ImprovementData | None = None
+        if row["status"] == "ok" and row["data_json"]:
+            data = ImprovementData.model_validate_json(row["data_json"])
+        return data, row["status"], int(row["expires_at"])
+
+    def set_improvement(
+        self,
+        equip_id: int,
+        data: ImprovementData | None,
+        status: str,
+        ttl_seconds: int,
+    ) -> None:
+        """写入/更新改修缓存。data 为 None 时 data_json 留空。"""
+        data_json = data.model_dump_json() if data else ""
+        now = int(time.time())
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO equipment_improvements
+                    (equip_id, data_json, fetched_at, status, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (equip_id, data_json, now, status, now + ttl_seconds),
+            )
+
+    def set_improvement_batch(
+        self,
+        items: list[tuple[int, ImprovementData | None, str]],
+        ttl_seconds: int,
+    ) -> int:
+        """批量写入改修缓存。items 元素：(equip_id, data, status)。
+
+        用于 ImprovementEnhancer 一次拉取全量后批量入库（避免 344 次单独 INSERT）。
+        """
+        if not items:
+            return 0
+        now = int(time.time())
+        rows = [
+            (
+                equip_id,
+                data.model_dump_json() if data else "",
+                now,
+                status,
+                now + ttl_seconds,
+            )
+            for equip_id, data, status in items
+        ]
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT OR REPLACE INTO equipment_improvements
+                    (equip_id, data_json, fetched_at, status, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def cleanup_expired_improvements(self) -> int:
+        """删除已过期的改修缓存。"""
+        now = int(time.time())
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM equipment_improvements WHERE expires_at < ?", (now,)
+            )
+        return cur.rowcount or 0
+
+    # ------------------------------------------------------------------
+    # Equipment / EquipmentType（P7）
+    # ------------------------------------------------------------------
+    def write_equipment_types(self, types: list[dict[str, Any]]) -> int:
+        """批量 upsert 装备类型记录。返回写入条数。
+
+        每条 dict 字段：type_id / name_jp / name_cn / name_en。允许 None。
+        """
+        if not types:
+            return 0
+        rows = [
+            (
+                int(t["type_id"]),
+                t.get("name_jp"),
+                t.get("name_cn"),
+                t.get("name_en"),
+                int(time.time()),
+            )
+            for t in types
+            if t.get("type_id") is not None
+        ]
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT OR REPLACE INTO equipment_types
+                    (type_id, name_jp, name_cn, name_en, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def get_equipment_type(self, type_id: int) -> dict[str, Any] | None:
+        """按 id 取装备类型。"""
+        cur = self.conn.execute(
+            "SELECT type_id, name_jp, name_cn, name_en FROM equipment_types WHERE type_id = ?",
+            (type_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def all_equipment_types(self) -> list[dict[str, Any]]:
+        """取全部装备类型。"""
+        cur = self.conn.execute(
+            "SELECT type_id, name_jp, name_cn, name_en FROM equipment_types ORDER BY type_id"
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def write_equipments(self, equips: list[Equipment]) -> int:
+        """批量 upsert 装备记录。返回写入条数。"""
+        rows = [self._equipment_to_row(e) for e in equips]
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT OR REPLACE INTO equipments (
+                    id, name_jp, name_cn, name_en, aliases_json,
+                    type_icon_id, type_id, rarity, range_,
+                    stats_json, distance, cost, broken_json,
+                    provenance_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def get_equipment(self, equip_id: int) -> Equipment | None:
+        """按 id 取单条装备。"""
+        cur = self.conn.execute("SELECT * FROM equipments WHERE id = ?", (equip_id,))
+        row = cur.fetchone()
+        return self._row_to_equipment(row) if row else None
+
+    def get_equipments_by_ids(self, ids: list[int]) -> dict[int, Equipment]:
+        """按 id 批量取，返回 {id: Equipment}。"""
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        cur = self.conn.execute(
+            f"SELECT * FROM equipments WHERE id IN ({placeholders})", ids
+        )
+        return {row["id"]: self._row_to_equipment(row) for row in cur.fetchall()}
+
+    def all_equipments(self) -> list[Equipment]:
+        """全表扫描（仅用于 fusion 前的旧数据查看或 resolver 索引构建）。"""
+        cur = self.conn.execute("SELECT * FROM equipments ORDER BY id")
+        return [self._row_to_equipment(row) for row in cur.fetchall()]
+
+    def find_equipment_by_exact_name(self, name: str) -> Equipment | None:
+        """按精确名匹配（jp / cn / en 任一命中即可）。
+
+        大小写不敏感；空字符串永远不命中。供 EquipmentResolver 第一步使用。
+        """
+        if not name:
+            return None
+        cur = self.conn.execute(
+            """
+            SELECT * FROM equipments
+            WHERE name_jp = ? OR name_cn = ? OR name_en = ?
+               OR LOWER(name_jp) = LOWER(?)
+               OR LOWER(name_cn) = LOWER(?)
+               OR LOWER(name_en) = LOWER(?)
+            LIMIT 1
+            """,
+            (name, name, name, name, name, name),
+        )
+        row = cur.fetchone()
+        return self._row_to_equipment(row) if row else None
+
+    def count_equipments(self) -> int:
+        cur = self.conn.execute("SELECT COUNT(*) AS n FROM equipments")
+        return int(cur.fetchone()["n"])
+
+    def rebuild_equipment_fts(self) -> int:
+        """重建装备全文索引。返回索引行数。"""
+        with self.conn:
+            self.conn.execute("DELETE FROM equipments_fts")
+            rows = self.conn.execute(
+                "SELECT id, name_jp, name_cn, name_en, aliases_json FROM equipments"
+            ).fetchall()
+
+        count = 0
+        for row in rows:
+            aliases = json.loads(row["aliases_json"] or "[]")
+            aliases_text = " ".join(aliases)
+            pinyin_text = to_pinyin(row["name_cn"] or "")
+            self.conn.execute(
+                """
+                INSERT INTO equipments_fts
+                    (equipment_id, name_jp, name_cn, name_en, pinyin, aliases)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    row["name_jp"] or "",
+                    row["name_cn"] or "",
+                    row["name_en"] or "",
+                    pinyin_text,
+                    aliases_text,
+                ),
+            )
+            count += 1
+        log.info(f"equipment fts rebuilt: {count} rows")
+        return count
+
+    def search_equipment_fts(self, query: str, limit: int = 20) -> list[tuple[int, int]]:
+        """装备全文检索。返回 [(equipment_id, rank_score)]，按 bm25 排序。
+
+        查询用双引号包裹为 PHRASE 字面匹配，避免特殊字符（如 20.3cm 中的 .）
+        触发 FTS5 语法错误；解析失败时返回空列表由上层 fuzzy 兜底。
+        """
+        if not query.strip():
+            return []
+        sql = (
+            "SELECT equipment_id, bm25(equipments_fts) AS score "
+            "FROM equipments_fts "
+            "WHERE equipments_fts MATCH ? "
+            "ORDER BY score LIMIT ?"
+        )
+        safe = _fts_phrase(query)
+        try:
+            cur = self.conn.execute(sql, (safe, limit))
+        except sqlite3.OperationalError as e:
+            log.warning(f"equipment fts query failed (query={query!r}): {e}")
+            return []
+        return [(int(r["equipment_id"]), -int(r["score"] * 1000)) for r in cur.fetchall()]
+
+    # ------------------------------------------------------------------
     # 序列化
     # ------------------------------------------------------------------
     @staticmethod
@@ -426,6 +755,49 @@ class Store:
             provenance=json.loads(row["provenance_json"] or "{}"),
         )
 
+    @staticmethod
+    def _equipment_to_row(e: Equipment) -> tuple[object, ...]:
+        return (
+            e.id,
+            e.name.jp,
+            e.name.cn,
+            e.name.en,
+            json.dumps(e.aliases, ensure_ascii=False),
+            e.type_icon_id,
+            e.type_id,
+            e.rarity,
+            e.range_,
+            e.stats.model_dump_json(),
+            e.distance,
+            e.cost,
+            json.dumps(e.broken, ensure_ascii=False) if e.broken is not None else None,
+            json.dumps(e.provenance, ensure_ascii=False),
+            int(time.time()),
+        )
+
+    @staticmethod
+    def _row_to_equipment(row: sqlite3.Row) -> Equipment:
+        broken_json = row["broken_json"]
+        broken = json.loads(broken_json) if broken_json else None
+        return Equipment(
+            id=int(row["id"]),
+            name=EquipmentName(
+                jp=row["name_jp"],
+                cn=row["name_cn"],
+                en=row["name_en"],
+            ),
+            aliases=json.loads(row["aliases_json"] or "[]"),
+            type_icon_id=_int(row["type_icon_id"]),
+            type_id=_int(row["type_id"]),
+            rarity=_int(row["rarity"]),
+            range_=_int(row["range_"]),
+            stats=EquipmentStats.model_validate_json(row["stats_json"] or "{}"),
+            distance=_int(row["distance"]),
+            cost=_int(row["cost"]),
+            broken=broken,
+            provenance=json.loads(row["provenance_json"] or "{}"),
+        )
+
 
 def _int(v: object | None) -> int | None:
     """sqlite Row 字段可能是 None 或 int；统一转 Optional[int]。"""
@@ -435,6 +807,32 @@ def _int(v: object | None) -> int | None:
         return int(v)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+def _fts_phrase(query: str) -> str:
+    """清理用户查询为安全的 FTS5 MATCH 表达式。
+
+    FTS5 在某些 SQLite 版本下对 ``.`` ``"`` ``*`` ``(`` ``)`` ``:`` ``^`` 等
+    字符报 syntax error；同时 unicode61 分词器把 ``20.3cm`` 整体作为一个 token
+    （``.`` 不是分隔符），导致 token 化查询无法命中复合 token。
+
+    策略：
+    1. 把非 word 字符（含 ``.``）替换为空格
+    2. 拆分为 token，每个 token 加 ``*`` 前缀通配
+    3. 多 token 用空格（隐式 AND）连接
+
+    示例：
+    - ``20.3cm連装砲`` → ``20* 3cm* 連装砲*``（命中索引中的 ``20.3cm`` 整体 token）
+    - ``Type-0 Recon`` → ``Type* 0* Recon*``
+    """
+    import re
+
+    cleaned = re.sub(r"[^\w]+", " ", query, flags=re.UNICODE).strip()
+    if not cleaned:
+        return '""'  # 空字符串占位（外层已拦截）
+    tokens = cleaned.split()
+    # 单字符 token 在 FTS5 前缀匹配中意义不大，但保留以防数字查询（如 "0"）
+    return " ".join(f"{t}*" for t in tokens)
 
 
 async def init_db(db_path: Path) -> Store:

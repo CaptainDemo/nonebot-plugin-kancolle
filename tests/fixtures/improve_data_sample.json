@@ -1,0 +1,161 @@
+{
+  "087": {
+    "id": 87,
+    "id_str": "087",
+    "name": "20.3cm連装砲",
+    "type": "中口径主砲",
+    "icon": 2,
+    "improvement": [
+      {
+        "upgrade": {"level": 0, "id": 228, "name": "20.3cm(3号)連装砲", "icon": 2},
+        "req": [
+          {
+            "day": [true, true, true, true, true, true, true],
+            "secretary": ["鳥海改二", "摩耶改二", "愛宕", "高雄"],
+            "secretaryIds": [143, 144, 168, 169]
+          }
+        ],
+        "consume": {
+          "fuel": 70, "ammo": 70, "steel": 70, "bauxite": 70,
+          "material": [
+            {
+              "development": [1, 2],
+              "improvement": [1, 1],
+              "item": {"count": 1, "icon": 1, "id": 35, "name": "7.7mm機銃"}
+            },
+            {
+              "development": [2, 3],
+              "improvement": [1, 2],
+              "item": {"count": 2, "icon": 1, "id": 35, "name": "7.7mm機銃"}
+            },
+            {
+              "development": [3, 5],
+              "improvement": [2, 3],
+              "item": {"count": 3, "icon": 2, "id": 87, "name": "20.3cm連装砲"}
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "025": {
+    "id": 25,
+    "id_str": "025",
+    "name": "零式水上偵察機",
+    "type": "水上偵察機",
+    "icon": 10,
+    "improvement": [
+      {
+        "upgrade": {"level": 0, "id": 0, "name": "", "icon": 0},
+        "req": [
+          {
+            "day": [false, true, false, true, false, true, false],
+            "secretary": ["千歳", "千代田", "瑞鳳", "鳳翔"],
+            "secretaryIds": [102, 103, 110, 25]
+          }
+        ],
+        "consume": {
+          "fuel": 50, "ammo": 50, "steel": 50, "bauxite": 50,
+          "material": [
+            {
+              "development": [1, 2],
+              "improvement": [1, 1],
+              "item": {"count": 1, "icon": 10, "id": 25, "name": "零式水上偵察機"}
+            },
+            {
+              "development": [2, 3],
+              "improvement": [1, 2],
+              "item": {"count": 1, "icon": 10, "id": 25, "name": "零式水上偵察機"}
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "285": {
+    "id": 285,
+    "id_str": "285",
+    "name": "异常 day 长度数据",
+    "type": "测试",
+    "icon": 1,
+    "improvement": [
+      {
+        "upgrade": {"level": 0, "id": 0, "name": "", "icon": 0},
+        "req": [
+          {
+            "day": [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true],
+            "secretary": ["凤翔"],
+            "secretaryIds": [25]
+          }
+        ],
+        "consume": {
+          "fuel": 10, "ammo": 10, "steel": 10, "bauxite": 10,
+          "material": [
+            {
+              "development": [1, 1],
+              "improvement": [1, 1],
+              "item": {"count": 0, "icon": 0, "id": 0, "name": ""}
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "999": {
+    "id": 999,
+    "id_str": "999",
+    "name": "无 req 但有 material",
+    "type": "测试",
+    "icon": 1,
+    "improvement": [
+      {
+        "upgrade": {"level": 0, "id": 0, "name": "", "icon": 0},
+        "req": [],
+        "consume": {
+          "fuel": 5, "ammo": 5, "steel": 5, "bauxite": 5,
+          "material": [
+            {
+              "development": [1, 1],
+              "improvement": [1, 1],
+              "item": {"count": 0, "icon": 0, "id": 0, "name": ""}
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "1000": {
+    "id": 1000,
+    "id_str": "1000",
+    "name": "多条 recipe 组合",
+    "type": "测试",
+    "icon": 1,
+    "improvement": [
+      {
+        "upgrade": {"level": 0, "id": 0, "name": "", "icon": 0},
+        "req": [
+          {
+            "day": [true, true, false, false, false, false, false],
+            "secretary": ["赤城", "加賀"],
+            "secretaryIds": [83, 84]
+          },
+          {
+            "day": [false, false, true, true, false, false, false],
+            "secretary": ["蒼龍", "飛龍"],
+            "secretaryIds": [99, 100]
+          }
+        ],
+        "consume": {
+          "fuel": 30, "ammo": 30, "steel": 30, "bauxite": 30,
+          "material": [
+            {
+              "development": [1, 2],
+              "improvement": [1, 1],
+              "item": {"count": 1, "icon": 1, "id": 87, "name": "20.3cm連装砲"}
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

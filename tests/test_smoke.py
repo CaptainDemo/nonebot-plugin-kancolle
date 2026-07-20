@@ -44,20 +44,24 @@ def test_source_adapter_parses() -> None:
 
 
 def test_schema_sql_has_core_tables() -> None:
-    """schema.sql 包含第一阶段所需的全部核心表。"""
+    """schema.sql 包含第一阶段所需的全部核心表（P7.1 起含装备+改修表）。"""
     schema = (PKG_ROOT / "schema.sql").read_text(encoding="utf-8")
-    for table in ("meta", "ships", "ships_fts", "aliases", "sources", "conflicts"):
+    for table in (
+        "meta", "ships", "ships_fts", "aliases", "sources", "conflicts",
+        "equipments", "equipments_fts", "equipment_types",
+        "equipment_improvements",
+    ):
         assert table in schema, f"缺少表 {table}"
 
 
 def test_schema_version_recorded() -> None:
-    """schema.sql 默认写入 schema_version=2。"""
+    """schema.sql 默认写入 schema_version=4（P7.1 起升级）。"""
     schema = (PKG_ROOT / "schema.sql").read_text(encoding="utf-8")
-    assert "schema_version" in schema and "'2'" in schema
+    assert "schema_version" in schema and "'4'" in schema
 
 
 def test_source_adapter_contract() -> None:
-    """SourceAdapter 是抽象基类，声明了 fetch / normalize_ships / priority。"""
+    """SourceAdapter 是抽象基类，声明了 fetch / normalize_ships / priority（P7 起含装备方法）。"""
     tree = _parse("data/sources/base.py")
     class_defs = [
         n for n in ast.walk(tree)
@@ -68,7 +72,9 @@ def test_source_adapter_contract() -> None:
         n.name for n in ast.walk(class_defs[0])
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    assert {"fetch", "normalize_ships", "priority"} <= method_names
+    assert {
+        "fetch", "normalize_ships", "normalize_slotitems", "normalize_equiptypes", "priority"
+    } <= method_names
 
 
 def test_pyproject_declares_dependencies() -> None:

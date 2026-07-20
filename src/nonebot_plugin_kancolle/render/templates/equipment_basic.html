@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }}{% endblock %}
+
+{% block content %}
+<div class="card equipment-basic">
+  <header class="equip-header">
+    <h1 class="equip-title">{{ display_name }}</h1>
+    <div class="equip-meta">
+      <span class="equip-type-badge">{{ type_cn }}</span>
+      {% if type_jp %}<span class="meta-dim">{{ type_jp }}</span>{% endif %}
+      {% if rarity is not none %}
+      <span class="rarity-badge rarity-{{ rarity }}">{{ rarity_label or ('★' ~ rarity) }}</span>
+      {% endif %}
+      <span class="meta-dim">#{{ equip_id }}</span>
+    </div>
+  </header>
+
+  <div class="equip-body">
+    {# 装备图标位（96x96 placeholder，未来填入 <img>） #}
+    <div class="equip-icon-placeholder">
+      <span class="icon-id">{{ ('%03d' % equip_id) if equip_id else '---' }}</span>
+    </div>
+
+    <div class="equip-body-main">
+      {% if range_text or speed_pills %}
+      <div class="equip-attrs">
+        {% if range_text %}<span class="attr-pill">射程 {{ range_text }}</span>{% endif %}
+      </div>
+      {% endif %}
+
+      {# 核心 6 项数值（带条形图，醒目） #}
+      <section class="equip-section">
+        <div class="section-title">核心数值</div>
+        <div class="stats-grid core-stats">
+          {% for stat in core_stats %}
+          <div class="stat-row{{ ' missing' if stat.missing }}">
+            <div class="stat-label">{{ stat.label }}</div>
+            <div class="stat-bars">
+              {% if not stat.missing %}
+              <div class="bar-track"><div class="bar-fill base" style="width: {{ (stat.value_ratio * 100)|round(1) }}%"></div></div>
+              {% else %}
+              <div class="bar-track"></div>
+              {% endif %}
+            </div>
+            <div class="stat-value">
+              {% if stat.missing -%}-{%- else -%}{{ stat.value }}{%- endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {# 完整 10 项数值（紧凑表格，无条形图） #}
+  <section class="equip-section full-stats-section">
+    <div class="section-title">完整数值</div>
+    <div class="full-stats-grid">
+      {% for stat in full_stats %}
+      <div class="full-stat-cell{{ ' missing' if stat.missing }}">
+        <span class="full-stat-label">{{ stat.label }}</span>
+        <span class="full-stat-value">
+          {% if stat.missing -%}-{%- else -%}{{ stat.value }}{%- endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# 飞机/废弃信息 #}
+  {% if distance is not none or cost is not none or broken_pairs %}
+  <section class="equip-section extras-section">
+    <div class="section-title">飞机 / 废弃</div>
+    <div class="extras-grid">
+      {% if distance is not none %}
+      <div class="extra-item">
+        <span class="extra-label">LBAS 半径</span>
+        <span class="extra-value">{{ distance }}</span>
+      </div>
+      {% endif %}
+      {% if cost is not none %}
+      <div class="extra-item">
+        <span class="extra-label">配置成本</span>
+        <span class="extra-value">{{ cost }}</span>
+      </div>
+      {% endif %}
+      {% for bp in broken_pairs %}
+      <div class="extra-item">
+        <span class="extra-label">{{ bp.label }}</span>
+        <span class="extra-value">{{ bp.value }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if detail_hint_name %}
+  <footer class="equip-footer">
+    <span class="hint">💡 详情:「查装备 {{ detail_hint_name }} 详细」</span>
+  </footer>
+  {% endif %}
+</div>
+
+<style>
+  .equip-header { margin-bottom: 16px; }
+  .equip-title { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+  .equip-meta {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .equip-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+  }
+  .rarity-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: 600;
+    color: #fff;
+  }
+  /* 稀有度配色 */
+  .rarity-0 { background: #6b7075; }
+  .rarity-1 { background: #6b7075; }
+  .rarity-2 { background: #4a90e2; }
+  .rarity-3 { background: #5cb85c; }
+  .rarity-4 { background: #e0a800; }
+  .rarity-5 { background: #d9534f; }
+  .rarity-6 { background: #8e44ad; }
+  .rarity-7 { background: #c0392b; }
+
+  /* 主体布局：图标位 96px + 主区 1fr */
+  .equip-body {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 20px;
+    margin-bottom: 14px;
+  }
+
+  .equip-icon-placeholder {
+    width: 96px;
+    height: 96px;
+    border-radius: 8px;
+    background: var(--bar-bg);
+    border: 1px dashed var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+
+  .equip-attrs {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .attr-pill {
+    padding: 3px 10px;
+    background: var(--bar-bg);
+    border-radius: 999px;
+    font-size: 0.85em;
+    color: var(--fg-dim);
+  }
+
+  /* Section 通用样式 */
+  .equip-section {
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+  }
+  .equip-section .section-title {
+    font-size: 13px; font-weight: 600;
+    color: var(--fg-dim);
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+  }
+
+  /* 核心数值（带条形图） */
+  .stats-grid.core-stats .stat-row {
+    display: grid;
+    grid-template-columns: 56px 1fr 60px;
+    gap: 10px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .stat-row.missing { opacity: 0.5; }
+  .stat-label { color: var(--fg-dim); font-size: 0.9em; }
+  .stat-bars { display: flex; flex-direction: column; gap: 3px; }
+  .bar-track {
+    position: relative;
+    height: 6px;
+    background: var(--bar-bg);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%;
+    border-radius: 3px;
+  }
+  .bar-fill.base { background: var(--bar-base); }
+  .stat-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.95em;
+  }
+
+  /* 完整 10 项数值（紧凑网格） */
+  .full-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px 12px;
+  }
+  .full-stat-cell {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 3px 6px;
+    background: var(--row-stripe);
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  .full-stat-cell.missing { opacity: 0.45; }
+  .full-stat-label { color: var(--fg-dim); }
+  .full-stat-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  /* 飞机/废弃 */
+  .extras-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 6px 16px;
+  }
+  .extra-item {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 3px 0;
+    border-bottom: 1px dashed var(--border);
+    font-size: 0.9em;
+  }
+  .extra-label { color: var(--fg-dim); }
+  .extra-value { font-variant-numeric: tabular-nums; }
+
+  .equip-footer {
+    display: flex; justify-content: flex-end;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 0.9em;
+  }
+  .hint { color: var(--fg-muted); font-size: 0.9em; }
+</style>
+{% endblock %}

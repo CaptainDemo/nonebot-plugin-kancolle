@@ -116,7 +116,7 @@ async def test_pipeline_first_update_marks_changed(
     ]
     renderer = FakeRenderer()
 
-    result = await run_update_pipeline(store, adapters, http_client, renderer)  # type: ignore[arg-type]
+    result = await run_update_pipeline(store, adapters, http_client, ship_renderer=renderer)  # type: ignore[arg-type]
 
     assert isinstance(result, UpdateResult)
     assert result.error is None
@@ -138,12 +138,12 @@ async def test_pipeline_same_version_not_changed(
     ]
     renderer = FakeRenderer()
 
-    first = await run_update_pipeline(store, adapters, http_client, renderer)  # type: ignore[arg-type]
+    first = await run_update_pipeline(store, adapters, http_client, ship_renderer=renderer)  # type: ignore[arg-type]
     assert first.changed is True
 
     # 第二次，相同 version
     renderer.invalidated_calls.clear()
-    second = await run_update_pipeline(store, adapters, http_client, renderer)  # type: ignore[arg-type]
+    second = await run_update_pipeline(store, adapters, http_client, ship_renderer=renderer)  # type: ignore[arg-type]
     assert second.changed is False
     assert second.cache_invalidated == 0
     assert renderer.invalidated_calls == []  # 没调用
@@ -161,14 +161,14 @@ async def test_pipeline_version_change_triggers_invalidation(
     await run_update_pipeline(
         store,
         [FakeAdapter("kcanotify", kcanotify, "v1"), FakeAdapter("kc3", kc3, "kc3_v1")],
-        http_client, renderer,  # type: ignore[arg-type]
+        http_client, ship_renderer=renderer,  # type: ignore[arg-type]
     )
     # 第二次 v2
     renderer.invalidated_calls.clear()
     result = await run_update_pipeline(
         store,
         [FakeAdapter("kcanotify", kcanotify, "v2"), FakeAdapter("kc3", kc3, "kc3_v1")],
-        http_client, renderer,  # type: ignore[arg-type]
+        http_client, ship_renderer=renderer,  # type: ignore[arg-type]
     )
 
     assert result.changed is True
@@ -186,7 +186,7 @@ async def test_pipeline_without_renderer_skips_cache_invalidation(
         FakeAdapter("kcanotify", kcanotify, "v1"),
         FakeAdapter("kc3", kc3, "kc3_v1"),
     ]
-    result = await run_update_pipeline(store, adapters, http_client, renderer=None)
+    result = await run_update_pipeline(store, adapters, http_client, ship_renderer=None)
 
     assert result.error is None
     assert result.cache_invalidated == 0
@@ -202,7 +202,7 @@ async def test_pipeline_all_sources_fail_returns_error(
 ) -> None:
     """所有源都失败 → UpdateResult.error 非 None。"""
     result = await run_update_pipeline(
-        store, [FailingAdapter()], http_client, renderer=None
+        store, [FailingAdapter()], http_client, ship_renderer=None
     )
 
     assert result.error is not None
@@ -221,7 +221,7 @@ async def test_pipeline_partial_failure_still_succeeds(
         store,
         [FakeAdapter("kcanotify", kcanotify, "v1"), FailingAdapter()],
         http_client,
-        renderer=None,
+        ship_renderer=None,
     )
 
     assert result.error is None
@@ -246,7 +246,7 @@ async def test_pipeline_result_includes_all_source_statuses(
         store,
         [FakeAdapter("kcanotify", kcanotify, "v1"), FakeAdapter("kc3", kc3, "kc3_v1")],
         http_client,
-        renderer=None,
+        ship_renderer=None,
     )
 
     names = {s.name for s in result.sources}
@@ -267,7 +267,7 @@ async def test_pipeline_data_version_format(
         store,
         [FakeAdapter("kcanotify", kcanotify, "kca_v9"), FakeAdapter("kc3", kc3, "kc3_abc")],
         http_client,
-        renderer=None,
+        ship_renderer=None,
     )
     # 按源名排序后拼接
     assert "kc3=kc3_abc" in result.data_version

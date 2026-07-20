@@ -26,6 +26,11 @@ class ImageCache:
         self._root.mkdir(parents=True, exist_ok=True)
         self._write_lock = asyncio.Lock()
 
+    @property
+    def root(self) -> Path:
+        """缓存根目录（只读）。"""
+        return self._root
+
     def _path(self, key: str) -> Path:
         return self._root / f"{key}.png"
 

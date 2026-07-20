@@ -28,7 +28,6 @@ from . import context as ctx
 from .assets import ShipArtCache, to_data_url
 from .cache import ImageCache
 
-
 RenderMode = Literal["basic", "detail", "remodel"]
 
 

@@ -3,6 +3,8 @@
 子类需要实现：
 - fetch: 从上游拉取原始数据（含版本指纹）
 - normalize_ships: 将原始数据规整为统一 ship schema 的 dict 流
+- normalize_slotitems: 装备 dict 流（P7 起要求；旧实现默认空迭代器）
+- normalize_equiptypes: 装备类型 dict 流（P7 起要求；旧实现默认空迭代器）
 
 子类可以覆盖：
 - priority: 该源在某字段上的优先级（数字越大优先级越高）
@@ -12,8 +14,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 import httpx
 
@@ -60,6 +63,22 @@ class SourceAdapter(ABC):
         规整后的 dict 应能直接 Ship(**dict) 接受（或部分字段为 None）。
         不在此做字段优先级裁决 —— 那是 fusion.py 的事。
         """
+
+    def normalize_slotitems(self, raw: RawData) -> Iterator[dict[str, Any]]:
+        """将原始数据规整为 equipment schema 的 dict 流（P7）。
+
+        默认返回空迭代器；提供装备数据的源应覆盖此方法。
+        规整后的 dict 应能直接 Equipment(**dict) 接受（或部分字段为 None）。
+        """
+        return iter(())
+
+    def normalize_equiptypes(self, raw: RawData) -> Iterator[dict[str, Any]]:
+        """将原始数据规整为 equipment_type schema 的 dict 流（P7）。
+
+        默认返回空迭代器；提供装备类型字典的源应覆盖此方法。
+        输出 dict 含 type_id / name_jp / name_cn / name_en 字段。
+        """
+        return iter(())
 
     def priority(self, field: str) -> int:
         """该源在指定字段上的优先级（数字越大优先级越高）。

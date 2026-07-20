@@ -10,11 +10,10 @@ handler 调用这些函数生成最终输出文本。
 """
 from __future__ import annotations
 
-from ..core.result import ResolveResult
-from ..data.models import Ship, ShipEnhancement
+from ..core.result import EquipmentResolveResult, ResolveResult
+from ..data.models import Equipment, ImprovementData, Ship, ShipEnhancement
 from ..data.sources.stype_table import get_stype
 from ..data.store import Store
-
 
 # ----------------------------------------------------------------------
 # 单舰娘输出
@@ -93,6 +92,10 @@ def format_help_overview() -> str:
         "    完整数值与装备详情\n"
         "  查舰娘 <名> 改造        ship <name> remodel\n"
         "    显示改造链\n"
+        "  查装备 <名>            equip <name>\n"
+        "    查询装备基础信息\n"
+        "  查装备 <名> 详细        equip <name> -d\n"
+        "    完整数值与废弃返还\n"
         "\n"
         "▸ 帮助\n"
         "  舰C帮助                kchelp\n"
@@ -118,6 +121,8 @@ def format_help_topic(topic: str) -> str | None:
     topics = {
         "查舰娘": _help_ship,
         "ship": _help_ship,
+        "查装备": _help_equipment,
+        "equip": _help_equipment,
         "舰c帮助": _help_help,
         "kchelp": _help_help,
         "更新舰娘数据": _help_update,
@@ -152,6 +157,33 @@ def _help_ship() -> str:
         "  查舰娘 yamato k2\n"
         "  ship yamato -d\n"
         "  查舰娘 大和 改造"
+    )
+
+
+def _help_equipment() -> str:
+    return (
+        "== 查装备 / equip ==\n"
+        "\n"
+        "查询装备数据，返回图片卡片。\n"
+        "\n"
+        "用法:\n"
+        "  查装备 <名>\n"
+        "  查装备 <名> 详细\n"
+        "  equip <name>\n"
+        "  equip <name> -d\n"
+        "\n"
+        "参数:\n"
+        "  <名>  必填。支持中日英名、拼音、模糊匹配\n"
+        "\n"
+        "示例:\n"
+        "  查装备 零式水上偵察機\n"
+        "  查装备 20.3cm连装炮 详细\n"
+        "  equip Type 0 Recon\n"
+        "\n"
+        "说明:\n"
+        "- 基础卡含完整数值 + 飞机半径/成本 + 废弃返还\n"
+        "- 详细模式额外显示改修数据（消耗、秘书舰、星期可用性）\n"
+        "- 多命中时返回候选列表，请重发精确名"
     )
 
 
@@ -225,6 +257,7 @@ def format_update_result(result: object) -> str:
     changed = getattr(result, "changed", False)
     version = getattr(result, "data_version", "")
     ship_count = getattr(result, "ship_count", 0)
+    equip_count = getattr(result, "equip_count", 0)
     cache_inv = getattr(result, "cache_invalidated", 0)
 
     if changed:
@@ -233,14 +266,16 @@ def format_update_result(result: object) -> str:
             f"✓ 更新完成\n"
             f"\n"
             f"数据版本: {version}\n"
-            f"舰娘总数: {ship_count}{cache_line}"
+            f"舰娘总数: {ship_count}\n"
+            f"装备总数: {equip_count}{cache_line}"
         )
 
     return (
         f"✓ 数据已是最新\n"
         f"\n"
         f"数据版本: {version}\n"
-        f"舰娘总数: {ship_count}"
+        f"舰娘总数: {ship_count}\n"
+        f"装备总数: {equip_count}"
     )
 
 
@@ -248,10 +283,12 @@ def format_data_status(
     data_version: str,
     ship_count: int,
     sources: list[object],
+    equip_count: int = 0,
 ) -> str:
     """格式化「数据状态」指令的输出。
 
     sources 元素需有 name / version / status / fetched_at / item_count / error_msg。
+    equip_count 默认 0 以保持向后兼容（旧调用方不传时仅不显示装备行）。
     """
     from datetime import datetime
 
@@ -262,6 +299,7 @@ def format_data_status(
     else:
         lines.append(f"数据版本: {data_version}")
     lines.append(f"舰娘总数: {ship_count}")
+    lines.append(f"装备总数: {equip_count}")
 
     # 整体最后更新时间：取 sources 中最大的 fetched_at
     fetched_ats = [
@@ -505,3 +543,232 @@ def _speed_text(speed: int) -> str:
 def _range_text(range_: int) -> str:
     """射程代号 → 文本。"""
     return {1: "短", 2: "中", 3: "长", 4: "超长"}.get(range_, f"代号{range_}")
+
+
+# ----------------------------------------------------------------------
+# 装备输出（P7）
+# ----------------------------------------------------------------------
+
+def format_equipment_basic(
+    equip: Equipment, type_entry: dict[str, object] | None = None
+) -> str:
+    """装备基础卡（P7.1 合并版）：完整数值 + 飞机/废弃信息。
+
+    合并原 basic + stats 文本内容，与图片基础卡信息对齐。
+    """
+    header = _equipment_header(equip, type_entry)
+    stats = _equipment_stats_full(equip)
+    extras = _equipment_extras(equip)
+    footer = _equipment_footer(equip, basic=True)
+    parts = [header, "", stats, "", extras]
+    if footer:
+        parts.extend(["", footer])
+    return "\n".join(parts)
+
+
+def format_equipment_detail(
+    equip: Equipment,
+    type_entry: dict[str, object] | None = None,
+    improvement: ImprovementData | None = None,
+) -> str:
+    """装备详细卡（P7.1）：基础信息 + 改修数据。
+
+    improvement 为 None 时仅显示基础信息 + 提示「暂无改修数据」。
+    """
+    basic = format_equipment_basic(equip, type_entry)
+    if improvement is None:
+        return basic + "\n\n⚠ 暂无改修数据"
+
+    improvement_text = _format_improvement(improvement)
+    return basic + "\n\n" + improvement_text
+
+
+def _format_improvement(improvement: ImprovementData) -> str:
+    """格式化改修数据为文本。"""
+    day_labels = ["一", "二", "三", "四", "五", "六", "日"]
+    lines = ["▸ 改修数据"]
+    for i, entry in enumerate(improvement.entries, 1):
+        if len(improvement.entries) > 1:
+            lines.append(f"  配方 {i}")
+
+        # 基础消耗
+        base_parts = []
+        if entry.fuel is not None:
+            base_parts.append(f"燃料 {entry.fuel}")
+        if entry.ammo is not None:
+            base_parts.append(f"弹药 {entry.ammo}")
+        if entry.steel is not None:
+            base_parts.append(f"钢材 {entry.steel}")
+        if entry.bauxite is not None:
+            base_parts.append(f"铝 {entry.bauxite}")
+        if base_parts:
+            lines.append("  基础消耗: " + " / ".join(base_parts))
+
+        # 改修资材表（按阶段）
+        for j, m in enumerate(entry.materials):
+            stage = ["★0-5", "★6-9", "★max→升级"][j] if j < 3 else f"阶段{j}"
+            lines.append(
+                f"  {stage}: 开发 {m.development[0]}-{m.development[1]} / "
+                f"改修 {m.improvement_res[0]}-{m.improvement_res[1]}"
+                + (f" / {m.item_name} ×{m.item_count}" if m.item_name else "")
+            )
+
+        # 升级链
+        if entry.upgrade and entry.upgrade.target_name:
+            lines.append(f"  升级: ★+{entry.upgrade.level} → {entry.upgrade.target_name}")
+
+        # 秘书舰 + 星期
+        for recipe in entry.recipes:
+            days = "·".join(
+                day_labels[k] for k, ok in enumerate(recipe.day) if ok and k < 7
+            ) or "无"
+            secr = " · ".join(recipe.secretary_names) if recipe.secretary_names else "任意"
+            lines.append(f"  秘书舰: {secr}  星期: {days}")
+
+    lines.append("  (★ 加成数值暂未集成)")
+    return "\n".join(lines)
+
+
+def format_equipment_multiple(result: EquipmentResolveResult) -> str:
+    """多命中列表（装备）。"""
+    assert result.is_multiple
+    candidates = list(result.candidates)
+    query_hint = ""
+    if result.hint == "pinyin":
+        query_hint = "（拼音匹配）"
+    elif result.hint == "fts":
+        query_hint = "（全文匹配）"
+    elif result.hint == "fuzzy":
+        query_hint = "（模糊匹配）"
+
+    header = f"找到 {len(candidates)} 件相关装备{query_hint}:\n"
+    lines = []
+    for i, e in enumerate(candidates, 1):
+        lines.append(f"[{i}] {_equipment_display_name(e):30s}  {_equipment_brief(e)}")
+    footer = "\n请直接发送具体装备名查看详情"
+    return header + "\n".join(lines) + footer
+
+
+# ----------------------------------------------------------------------
+# 装备内部辅助
+# ----------------------------------------------------------------------
+
+_EQIP_STAT_FIELDS_BASIC = (
+    ("火力", "firepower"),
+    ("雷装", "torpedo"),
+    ("对空", "aa"),
+    ("装甲", "armor"),
+    ("对潜", "asw"),
+    ("索敌", "los"),
+)
+
+_EQUIP_STAT_FIELDS_FULL = (
+    ("火力", "firepower"),
+    ("雷装", "torpedo"),
+    ("对空", "aa"),
+    ("装甲", "armor"),
+    ("对潜", "asw"),
+    ("索敌", "los"),
+    ("回避", "evasion"),
+    ("命中", "accuracy"),
+    ("运",   "luck"),
+    ("爆装", "bombing"),
+)
+
+
+def _equipment_header(
+    equip: Equipment, type_entry: dict[str, object] | None
+) -> str:
+    """装备卡头部：多语言名 + 类型 + id。"""
+    name = _equipment_display_name(equip)
+    brief = _equipment_brief(equip, type_entry)
+    return f"{name}\n{brief}"
+
+
+def _equipment_display_name(equip: Equipment) -> str:
+    """装备多语言名拼接，空值过滤。"""
+    names = [n for n in (equip.name.jp, equip.name.cn, equip.name.en) if n]
+    return " / ".join(names) if names else f"装备 #{equip.id}"
+
+
+def _equipment_brief(
+    equip: Equipment, type_entry: dict[str, object] | None = None
+) -> str:
+    """单行简介：「类型中文名 · 稀有度 · ID xxx」。"""
+    parts: list[str] = []
+    if type_entry:
+        cn = type_entry.get("name_cn") or type_entry.get("name_jp")
+        if cn:
+            parts.append(str(cn))
+    if equip.rarity is not None:
+        parts.append(f"★{equip.rarity}")
+    brief = " · ".join(parts) if parts else "未知"
+    return f"{brief} · ID {equip.id}"
+
+
+def _equipment_stats_compact(equip: Equipment) -> str:
+    """紧凑数值表（基础卡用）。"""
+    rows = [
+        (label, getattr(equip.stats, attr, None))
+        for label, attr in _EQIP_STAT_FIELDS_BASIC
+    ]
+    lines = [f"{label:<4s}  {_int_str(val)}" for label, val in rows]
+    # 射程
+    if equip.range_ is not None:
+        lines.append(f"射程  {_equip_range_text(equip.range_)}")
+    return "\n".join(lines)
+
+
+def _equipment_stats_full(equip: Equipment) -> str:
+    """完整数值表（详细卡用）。"""
+    header = "▸ 数值\n"
+    rows = [
+        (label, getattr(equip.stats, attr, None))
+        for label, attr in _EQUIP_STAT_FIELDS_FULL
+    ]
+    body = "\n".join(f"{label:<4s}  {_int_str(val):>4s}" for label, val in rows)
+    # 射程
+    extras: list[str] = []
+    if equip.range_ is not None:
+        extras.append(f"射程: {_equip_range_text(equip.range_)}")
+    if equip.rarity is not None:
+        extras.append(f"稀有度: ★{equip.rarity}")
+    extras_line = "\n".join(extras)
+    return f"{header}{body}\n{extras_line}" if extras else f"{header}{body}"
+
+
+def _equipment_extras(equip: Equipment) -> str:
+    """飞机 distance/cost + 废弃返还。"""
+    lines = ["▸ 额外"]
+    has_extra = False
+    if equip.distance is not None:
+        lines.append(f"  半径: {equip.distance}")
+        has_extra = True
+    if equip.cost is not None:
+        lines.append(f"  配置成本: {equip.cost}")
+        has_extra = True
+    if equip.broken:
+        labels = ["燃料", "弹药", "钢材", "铝"]
+        items = [f"{lb} {v}" for lb, v in zip(labels, equip.broken, strict=False)]
+        lines.append("  废弃返还: " + " / ".join(items))
+        has_extra = True
+    if not has_extra:
+        lines.append("  (无额外数据)")
+    return "\n".join(lines)
+
+
+def _equipment_footer(equip: Equipment, basic: bool) -> str:
+    """卡片底部：详情提示。"""
+    if not basic:
+        return ""
+    first_name = (_equipment_display_name(equip).split(" / ")[0] or "").strip()
+    if first_name:
+        return f"💡 详情:「查装备 {first_name} 详细」"
+    return ""
+
+
+def _equip_range_text(range_: int) -> str:
+    """装备射程代号 → 文本（0=无 是装备特有）。"""
+    return {0: "无", 1: "短", 2: "中", 3: "长", 4: "超长", 5: "超超长"}.get(
+        range_, f"代号{range_}"
+    )
