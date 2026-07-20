@@ -36,25 +36,35 @@ class Kc3TranslationsAdapter(SourceAdapter):
 
     async def fetch(self, client: httpx.AsyncClient) -> RawData:
         """拉取各语种 ships/items/equiptype.json + ship_affix.json，用 commit_sha 作为版本指纹。"""
+        import asyncio
         import time
 
         sha = await fetch_latest_commit_sha(client, self.REPO, self.REF)
+
+        # raw.githubusercontent.com 对单 IP 瞬时并发敏感，14 个文件并行容易触发
+        # 连接被 RST（表现为 ReadError("")）；限并发以降低失败概率
+        # （kc3 数据更新对时间不敏感，2 并发换稳定性）
+        sem = asyncio.Semaphore(2)
+
+        async def _bounded_fetch(path: str) -> Any:
+            async with sem:
+                return await fetch_raw(client, self.REPO, path, self.REF)
 
         # 并发拉取所需文件
         jobs: list = []
         keys: list[str] = []
         for lang_dir in LANG_MAP:
-            jobs.append(fetch_raw(client, self.REPO, f"data/{lang_dir}/ships.json", self.REF))
+            jobs.append(_bounded_fetch(f"data/{lang_dir}/ships.json"))
             keys.append(f"ships_{lang_dir}")
             # 装备名翻译（P7）
-            jobs.append(fetch_raw(client, self.REPO, f"data/{lang_dir}/items.json", self.REF))
+            jobs.append(_bounded_fetch(f"data/{lang_dir}/items.json"))
             keys.append(f"items_{lang_dir}")
             # 装备类型翻译（P7）
-            jobs.append(fetch_raw(client, self.REPO, f"data/{lang_dir}/equiptype.json", self.REF))
+            jobs.append(_bounded_fetch(f"data/{lang_dir}/equiptype.json"))
             keys.append(f"equiptype_{lang_dir}")
-        jobs.append(fetch_raw(client, self.REPO, "data/scn/ship_affix.json", self.REF))
+        jobs.append(_bounded_fetch("data/scn/ship_affix.json"))
         keys.append("affix_scn")
-        jobs.append(fetch_raw(client, self.REPO, "data/en/ship_affix.json", self.REF))
+        jobs.append(_bounded_fetch("data/en/ship_affix.json"))
         keys.append("affix_en")
 
         results = await _gather(*jobs)

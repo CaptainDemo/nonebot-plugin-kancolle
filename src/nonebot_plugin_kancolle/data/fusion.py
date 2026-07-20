@@ -51,7 +51,9 @@ async def _fetch_all_adapters(
     results = await asyncio.gather(*fetch_tasks.values(), return_exceptions=True)
     for (name, _), result in zip(fetch_tasks.items(), results, strict=True):
         if isinstance(result, Exception):
-            log.error(f"source {name} fetch failed: {result}")
+            # 用 repr 而非 str：某些异常（如 httpx.ReadError("")）str 为空，
+            # repr 至少包含类名，便于直接从日志定位
+            log.error(f"source {name} fetch failed: {repr(result)[:500]}")
             store.record_source(
                 name=name,
                 version="",
